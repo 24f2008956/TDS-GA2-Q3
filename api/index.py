@@ -121,6 +121,10 @@ class Event(BaseModel):
     amount: float
     ts: int
 
+@app.get("/test-deploy")
+def test_deploy():
+    return {"status": "ANALYTICS_DEPLOYED", "timestamp": "2026-07-02"}    
+
 @app.post("/analytics")
 async def analytics(request: Request):
     # Check API key

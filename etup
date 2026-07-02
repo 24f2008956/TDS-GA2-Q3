@@ -1,0 +1,131 @@
+[1mdiff --git a/.env b/.env[m
+[1mindex e69de29..32085a3 100644[m
+[1m--- a/.env[m
+[1m+++ b/.env[m
+[36m@@ -0,0 +1,2 @@[m
+[32m+[m[32mAPP_LOG_LEVEL=info[m
+[32m+[m[32mAPP_API_KEY=key-727amr6hbx[m
+\ No newline at end of file[m
+[1mdiff --git a/Dockerfile b/Dockerfile[m
+[1mindex e69de29..6426d30 100644[m
+[1m--- a/Dockerfile[m
+[1m+++ b/Dockerfile[m
+[36m@@ -0,0 +1,10 @@[m
+[32m+[m[32mFROM python:3.11-slim[m
+[32m+[m
+[32m+[m[32mWORKDIR /app[m
+[32m+[m
+[32m+[m[32mCOPY requirements.txt .[m
+[32m+[m[32mRUN pip install --no-cache-dir -r requirements.txt[m
+[32m+[m
+[32m+[m[32mCOPY . .[m
+[32m+[m
+[32m+[m[32mCMD ["uvicorn", "api.index:app", "--host", "0.0.0.0", "--port", "8000"][m
+\ No newline at end of file[m
+[1mdiff --git a/api/index.py b/api/index.py[m
+[1mindex e69de29..eb9722d 100644[m
+[1m--- a/api/index.py[m
+[1m+++ b/api/index.py[m
+[36m@@ -0,0 +1,83 @@[m
+[32m+[m[32mfrom fastapi import FastAPI, Query[m
+[32m+[m[32mfrom fastapi.middleware.cors import CORSMiddleware[m
+[32m+[m[32mfrom dotenv import load_dotenv[m
+[32m+[m[32mimport yaml[m
+[32m+[m[32mimport os[m
+[32m+[m
+[32m+[m[32mload_dotenv()[m
+[32m+[m
+[32m+[m[32mapp = FastAPI()[m
+[32m+[m
+[32m+[m[32m# Q3 requires open CORS[m
+[32m+[m[32mapp.add_middleware([m
+[32m+[m[32m    CORSMiddleware,[m
+[32m+[m[32m    allow_origins=["*"],[m
+[32m+[m[32m    allow_credentials=False,[m
+[32m+[m[32m    allow_methods=["*"],[m
+[32m+[m[32m    allow_headers=["*"],[m
+[32m+[m[32m)[m
+[32m+[m
+[32m+[m[32mDEFAULTS = {[m
+[32m+[m[32m    "port": 8000,[m
+[32m+[m[32m    "workers": 1,[m
+[32m+[m[32m    "debug": False,[m
+[32m+[m[32m    "log_level": "info",[m
+[32m+[m[32m    "api_key": "default-secret-000",[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m
+[32m+[m[32mdef coerce(key, value):[m
+[32m+[m[32m    if key in ["port", "workers"]:[m
+[32m+[m[32m        return int(value)[m
+[32m+[m
+[32m+[m[32m    if key == "debug":[m
+[32m+[m[32m        return str(value).lower() in ["true", "1", "yes", "on"][m
+[32m+[m
+[32m+[m[32m    return value[m
+[32m+[m
+[32m+[m
+[32m+[m[32m@app.get("/effective-config")[m
+[32m+[m[32mdef effective_config(set: list[str] = Query(default=[])):[m
+[32m+[m[32m    config = DEFAULTS.copy()[m
+[32m+[m
+[32m+[m[32m    # 1. YAML layer[m
+[32m+[m[32m    if os.path.exists("config.development.yaml"):[m
+[32m+[m[32m        with open("config.development.yaml") as f:[m
+[32m+[m[32m            yaml_config = yaml.safe_load(f)[m
+[32m+[m[32m            if yaml_config:[m
+[32m+[m[32m                config.update(yaml_config)[m
+[32m+[m
+[32m+[m[32m    # 2. .env layer[m
+[32m+[m[32m    if os.getenv("NUM_WORKERS"):[m
+[32m+[m[32m        config["workers"] = int(os.getenv("NUM_WORKERS"))[m
+[32m+[m
+[32m+[m[32m    if os.getenv("APP_LOG_LEVEL"):[m
+[32m+[m[32m        config["log_level"] = os.getenv("APP_LOG_LEVEL")[m
+[32m+[m
+[32m+[m[32m    if os.getenv("APP_API_KEY"):[m
+[32m+[m[32m        config["api_key"] = os.getenv("APP_API_KEY")[m
+[32m+[m
+[32m+[m[32m    # 3. OS environment variables (highest before CLI)[m
+[32m+[m[32m    mapping = {[m
+[32m+[m[32m        "APP_PORT": "port",[m
+[32m+[m[32m        "APP_WORKERS": "workers",[m
+[32m+[m[32m        "APP_DEBUG": "debug",[m
+[32m+[m[32m        "APP_LOG_LEVEL": "log_level",[m
+[32m+[m[32m        "APP_API_KEY": "api_key",[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    for env_key, cfg_key in mapping.items():[m
+[32m+[m[32m        value = os.getenv(env_key)[m
+[32m+[m[32m        if value is not None:[m
+[32m+[m[32m            config[cfg_key] = coerce(cfg_key, value)[m
+[32m+[m
+[32m+[m[32m    # 4. CLI overrides (highest precedence)[m
+[32m+[m[32m    for item in set:[m
+[32m+[m[32m        if "=" in item:[m
+[32m+[m[32m            key, value = item.split("=", 1)[m
+[32m+[m[32m            config[key] = coerce(key, value)[m
+[32m+[m
+[32m+[m[32m    # Never expose secrets[m
+[32m+[m[32m    config["api_key"] = "****"[m
+[32m+[m
+[32m+[m[32m    return config[m
+\ No newline at end of file[m
+[1mdiff --git a/config.development.yaml b/config.development.yaml[m
+[1mindex e69de29..bc03b97 100644[m
+[1m--- a/config.development.yaml[m
+[1m+++ b/config.development.yaml[m
+[36m@@ -0,0 +1,2 @@[m
+[32m+[m[32mworkers: 8[m
+[32m+[m[32mdebug: false[m
+\ No newline at end of file[m
+[1mdiff --git a/requirements.txt b/requirements.txt[m
+[1mindex e69de29..f57b431 100644[m
+[1m--- a/requirements.txt[m
+[1m+++ b/requirements.txt[m
+[36m@@ -0,0 +1,4 @@[m
+[32m+[m[32mfastapi[m
+[32m+[m[32muvicorn[m
+[32m+[m[32mpython-dotenv[m
+[32m+[m[32mpyyaml[m
+\ No newline at end of file[m

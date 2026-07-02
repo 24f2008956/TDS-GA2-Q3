@@ -8,7 +8,6 @@ load_dotenv()
 
 app = FastAPI()
 
-# Q3 requires open CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -40,12 +39,11 @@ def coerce(key, value):
 def effective_config(set: list[str] = Query(default=[])):
     config = DEFAULTS.copy()
 
-    # 1. YAML layer
+    # 1. YAML (highest after defaults)
     if os.path.exists("config.development.yaml"):
         with open("config.development.yaml") as f:
-            yaml_config = yaml.safe_load(f)
-            if yaml_config:
-                config.update(yaml_config)
+            yaml_config = yaml.safe_load(f) or {}
+            config.update(yaml_config)
 
     # 2. .env layer
     if os.getenv("NUM_WORKERS"):
@@ -57,7 +55,7 @@ def effective_config(set: list[str] = Query(default=[])):
     if os.getenv("APP_API_KEY"):
         config["api_key"] = os.getenv("APP_API_KEY")
 
-    # 3. OS environment variables (highest before CLI)
+    # 3. OS env (APP_* prefix)
     mapping = {
         "APP_PORT": "port",
         "APP_WORKERS": "workers",
@@ -67,9 +65,8 @@ def effective_config(set: list[str] = Query(default=[])):
     }
 
     for env_key, cfg_key in mapping.items():
-        value = os.getenv(env_key)
-        if value is not None:
-            config[cfg_key] = coerce(cfg_key, value)
+        if os.getenv(env_key) is not None:
+            config[cfg_key] = coerce(cfg_key, os.getenv(env_key))
 
     # 4. CLI overrides (highest precedence)
     for item in set:
@@ -77,7 +74,7 @@ def effective_config(set: list[str] = Query(default=[])):
             key, value = item.split("=", 1)
             config[key] = coerce(key, value)
 
-    # Never expose secrets
+    # mask secret
     config["api_key"] = "****"
 
     return config

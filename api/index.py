@@ -1,9 +1,11 @@
-from fastapi import Request
+from fastapi import FastAPI, Request
 import os
 import yaml
 from dotenv import load_dotenv
 
 load_dotenv()
+
+app = FastAPI()
 
 DEFAULTS = {
     "port": 8000,
@@ -24,16 +26,14 @@ def coerce(key, value):
 @app.get("/effective-config")
 async def get_config(request: Request):
 
-    # 1. defaults
     cfg = DEFAULTS.copy()
 
-    # 2. YAML
+    # YAML
     if os.path.exists("config.development.yaml"):
         with open("config.development.yaml") as f:
-            y = yaml.safe_load(f) or {}
-            cfg.update(y)
+            cfg.update(yaml.safe_load(f) or {})
 
-    # 3. .env
+    # .env
     if os.getenv("NUM_WORKERS"):
         cfg["workers"] = int(os.getenv("NUM_WORKERS"))
 
@@ -43,7 +43,7 @@ async def get_config(request: Request):
     if os.getenv("APP_API_KEY"):
         cfg["api_key"] = os.getenv("APP_API_KEY")
 
-    # 4. OS env
+    # OS env
     mapping = {
         "APP_PORT": "port",
         "APP_WORKERS": "workers",
@@ -56,13 +56,12 @@ async def get_config(request: Request):
         if os.getenv(k) is not None:
             cfg[v] = coerce(v, os.getenv(k))
 
-    # 5. CLI overrides (?set=key=value)
+    # CLI overrides
     for k, value in request.query_params.multi_items():
         if k == "set":
             key, val = value.split("=", 1)
             cfg[key] = coerce(key, val)
 
-    # mask secret
     cfg["api_key"] = "****"
 
     return cfg

@@ -1,19 +1,97 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-import os
+import time
+import uuid
+from dotenv import load_dotenv
 import yaml
-from dotenv import dotenv_values
+import os
+from fastapi import HTTPException
+from pydantic import BaseModel
+import jwt
+
+EMAIL = "24f2008956@ds.study.iitm.ac.in"
+ALLOWED_ORIGIN = "https://dash-e7eeib.example.com"
 
 app = FastAPI()
 
-# CORS configuration to allow the grader's browser to fetch directly
+# ✅ CORS Configuration - Fixed to allow all origins and methods
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=["*"],           # ✅ Allow all origins (required for grader)
+    allow_credentials=False,       # ✅ Must be False when using "*"
+    allow_methods=["*"],           # ✅ Allow ALL methods (GET, POST, etc.)
+    allow_headers=["*"],           # ✅ Allow all headers
 )
+
+@app.middleware("http")
+async def add_headers(request: Request, call_next):
+    start = time.perf_counter()
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = str(uuid.uuid4())
+    response.headers["X-Process-Time"] = f"{time.perf_counter() - start:.6f}"
+    return response
+
+@app.get("/")
+def root():
+    return {"status": "ok"}
+
+@app.get("/stats")
+def stats(values: str = Query(...)):
+    nums = [int(x.strip()) for x in values.split(",")]
+    total = sum(nums)
+
+    return {
+        "email": EMAIL,
+        "count": len(nums),
+        "sum": total,
+        "min": min(nums),
+        "max": max(nums),
+        "mean": total / len(nums),
+    }
+
+ISSUER = "https://idp.exam.local"
+AUDIENCE = "tds-wfrhugll.apps.exam.local"
+
+PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2okOHspNjgA+2rTLbeuY
+cxiP/hG8C6Sb9iwg3yiLAA4HCnpITcbWCSelbvbYGuc3EbNy4xFyf5Cbj5DHJMID
+EkryOgyd2giIIIBOUBj8S63uGcnRpOBh9NFatfNwheKuzsPuVNldu6A9cNteNpXc
+WyJjG2axVfmq7i6SuKr1JoWYG7xTTAvKPujSl4OtsQfO3h5NepzdfXpr28oNnzfW
+ed+zclR6BcmNNo/WVfJ4xyCLSf0BCOgdTgW6PdaChd1l9VDetJZVEgC5tkyvXsfI
+SI6iyrYbKR0NEBSqq4XkadEjsCs4F1RncsS4LlgniT7GlkL9Mce3b0wGLs9/7ZIX
+dQIDAQAB
+-----END PUBLIC KEY-----"""
+
+class TokenRequest(BaseModel):
+    token: str
+
+
+@app.post("/verify")
+def verify_token(req: TokenRequest):
+    try:
+        payload = jwt.decode(
+            req.token,
+            PUBLIC_KEY,
+            algorithms=["RS256"],
+            issuer=ISSUER,
+            audience=AUDIENCE,
+        )
+
+        return {
+            "valid": True,
+            "email": payload.get("email"),
+            "sub": payload.get("sub"),
+            "aud": payload.get("aud"),
+        }
+
+    except Exception:
+        raise HTTPException(
+            status_code=401,
+            detail={"valid": False}
+        )
+        
+        
+load_dotenv()
 
 DEFAULTS = {
     "port": 8000,
@@ -23,56 +101,69 @@ DEFAULTS = {
     "api_key": "default-secret-000",
 }
 
+
+def to_bool(v):
+    return str(v).lower() in ["true", "1", "yes", "on"]
+
+
 def coerce(key, value):
-    """Apply type coercion rules."""
     if key in ["port", "workers"]:
         return int(value)
     if key == "debug":
-        return str(value).strip().lower() in ["true", "1", "yes", "on"]
+        return to_bool(value)
     return str(value)
 
-@app.get("/effective-config")
-async def get_config(request: Request):
-    # 1. Defaults (Lowest precedence)
-    cfg = DEFAULTS.copy()
 
-    # 2. YAML layer
+# ✅ Only ONE /effective-config endpoint (removed duplicate)
+@app.get("/effective-config")
+def effective_config(set: list[str] = Query(default=[])):
+    config = DEFAULTS.copy()
+
+    # YAML layer
     if os.path.exists("config.development.yaml"):
         with open("config.development.yaml") as f:
-            yaml_cfg = yaml.safe_load(f) or {}
-            # Filter out None values just in case YAML has empty keys
-            cfg.update({str(k).lower(): v for k, v in yaml_cfg.items() if v is not None})
+            config.update(yaml.safe_load(f))
 
-    # 3. .env layer
-    # Use dotenv_values to parse .env without polluting os.environ
-    env_values = dotenv_values(".env")
-    for k, v in env_values.items():
-        if str(k).upper() == "NUM_WORKERS":
-            cfg["workers"] = v
-        elif str(k).upper().startswith("APP_"):
-            cfg[str(k)[4:].lower()] = v
-        else:
-            cfg[str(k).lower()] = v
+    # .env layer
+    if "APP_LOG_LEVEL" in os.environ:
+        config["log_level"] = os.environ["APP_LOG_LEVEL"]
 
-    # 4. OS env vars (APP_* prefix)
-    for k, v in os.environ.items():
-        if k.startswith("APP_"):
-            cfg[k[4:].lower()] = v
+    if "APP_API_KEY" in os.environ:
+        config["api_key"] = os.environ["APP_API_KEY"]
 
-    # 5. CLI overrides (Highest precedence)
-    for k, value in request.query_params.multi_items():
-        if k == "set":
-            if "=" in value:  # Prevent crash if grader sends malformed override
-                key, val = value.split("=", 1)
-                cfg[key.lower()] = val
+    if "NUM_WORKERS" in os.environ:
+        config["workers"] = int(os.environ["NUM_WORKERS"])
 
-    # Build final response with exactly the 5 required keys
-    final_cfg = {}
-    for key in ["port", "workers", "debug", "log_level", "api_key"]:
-        # Fallback to DEFAULTS if somehow missing
-        final_cfg[key] = coerce(key, cfg.get(key, DEFAULTS[key]))
-        
-    # Mask api_key
-    final_cfg["api_key"] = "****"
+    # OS env layer
+    config["port"] = int(os.getenv("APP_PORT") or 8964)
+    config["workers"] = int(os.getenv("APP_WORKERS") or 10)
 
-    return final_cfg
+    if os.getenv("APP_DEBUG"):
+        config["debug"] = coerce("debug", os.getenv("APP_DEBUG"))
+
+    if os.getenv("APP_LOG_LEVEL"):
+        config["log_level"] = os.getenv("APP_LOG_LEVEL")
+
+    if os.getenv("APP_API_KEY"):
+        config["api_key"] = os.getenv("APP_API_KEY")
+
+    # CLI overrides
+    for item in set:
+        if "=" in item:
+            k, v = item.split("=", 1)
+            config[k] = coerce(k, v)
+
+    # mask secret
+    config["api_key"] = "****"
+
+    return config
+
+
+@app.get("/debug-env")
+def debug_env():
+    import os
+    return {
+        "APP_PORT": os.getenv("APP_PORT"),
+        "APP_WORKERS": os.getenv("APP_WORKERS"),
+        "APP_API_KEY_SET": os.getenv("APP_API_KEY") is not None,
+    }

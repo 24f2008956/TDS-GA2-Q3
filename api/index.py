@@ -65,3 +65,6 @@ async def get_config(request: Request):
     cfg["api_key"] = "****"
 
     return cfg
+
+import os
+port = int(os.getenv("PORT", 8000))

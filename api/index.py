@@ -11,9 +11,9 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
     allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
 )
 
 
@@ -76,5 +76,3 @@ async def get_config(request: Request):
 
     return cfg
 
-import os
-port = int(os.getenv("PORT", 8000))

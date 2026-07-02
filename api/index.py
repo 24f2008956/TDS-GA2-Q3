@@ -112,3 +112,45 @@ def debug_env():
         "APP_WORKERS": config.Q3_WORKERS,
         "APP_API_KEY_SET": config.Q3_API_KEY != "default-secret-000",
     }# CORS test deployment 20260702190336
+
+# --- Analytics Endpoint ---
+ANALYTICS_API_KEY = "ak_4kujoh6wtfeun0jw198sosp7"
+
+class Event(BaseModel):
+    user: str
+    amount: float
+    ts: int
+
+@app.post("/analytics")
+async def analytics(request: Request):
+    # Check API key
+    api_key = request.headers.get("X-API-Key")
+    if api_key != ANALYTICS_API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+    
+    # Parse body
+    body = await request.json()
+    events = body.get("events", [])
+    
+    # Calculate aggregations
+    total_events = len(events)
+    unique_users = len(set(e["user"] for e in events))
+    
+    # Revenue: sum of amount where amount > 0
+    revenue = sum(e["amount"] for e in events if e["amount"] > 0)
+    
+    # Top user: user with highest positive-amount total
+    user_totals = {}
+    for e in events:
+        if e["amount"] > 0:
+            user_totals[e["user"]] = user_totals.get(e["user"], 0) + e["amount"]
+    
+    top_user = max(user_totals, key=user_totals.get) if user_totals else ""
+    
+    return {
+        "email": "24f2008956@ds.study.iitm.ac.in",
+        "total_events": total_events,
+        "unique_users": unique_users,
+        "revenue": revenue,
+        "top_user": top_user
+    }

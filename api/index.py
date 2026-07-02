@@ -110,4 +110,4 @@ def debug_env():
         "APP_PORT": config.Q3_PORT,
         "APP_WORKERS": config.Q3_WORKERS,
         "APP_API_KEY_SET": config.Q3_API_KEY != "default-secret-000",
-    }
+    }# CORS test deployment 20260702190336

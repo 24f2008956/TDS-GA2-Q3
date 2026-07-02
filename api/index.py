@@ -1,26 +1,22 @@
-from fastapi import FastAPI, Query, Request
+from fastapi import FastAPI, Query, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import time
 import uuid
-from dotenv import load_dotenv
-import yaml
-import os
-from fastapi import HTTPException
 from pydantic import BaseModel
 import jwt
+import config
 
 EMAIL = "24f2008956@ds.study.iitm.ac.in"
-ALLOWED_ORIGIN = "https://dash-e7eeib.example.com"
 
 app = FastAPI()
 
-# ✅ CORS Configuration - Fixed to allow all origins and methods
+# ✅ CORS - MUST BE FIRST
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],           # ✅ Allow all origins (required for grader)
-    allow_credentials=False,       # ✅ Must be False when using "*"
-    allow_methods=["*"],           # ✅ Allow ALL methods (GET, POST, etc.)
-    allow_headers=["*"],           # ✅ Allow all headers
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 @app.middleware("http")
@@ -39,7 +35,6 @@ def root():
 def stats(values: str = Query(...)):
     nums = [int(x.strip()) for x in values.split(",")]
     total = sum(nums)
-
     return {
         "email": EMAIL,
         "count": len(nums),
@@ -65,7 +60,6 @@ dQIDAQAB
 class TokenRequest(BaseModel):
     token: str
 
-
 @app.post("/verify")
 def verify_token(req: TokenRequest):
     try:
@@ -76,94 +70,44 @@ def verify_token(req: TokenRequest):
             issuer=ISSUER,
             audience=AUDIENCE,
         )
-
         return {
             "valid": True,
             "email": payload.get("email"),
             "sub": payload.get("sub"),
             "aud": payload.get("aud"),
         }
-
     except Exception:
-        raise HTTPException(
-            status_code=401,
-            detail={"valid": False}
-        )
-        
-        
-load_dotenv()
+        raise HTTPException(status_code=401, detail={"valid": False})
 
-DEFAULTS = {
-    "port": 8000,
-    "workers": 1,
-    "debug": False,
-    "log_level": "info",
-    "api_key": "default-secret-000",
-}
-
-
-def to_bool(v):
-    return str(v).lower() in ["true", "1", "yes", "on"]
-
-
-def coerce(key, value):
-    if key in ["port", "workers"]:
-        return int(value)
-    if key == "debug":
-        return to_bool(value)
-    return str(value)
-
-
-# ✅ Only ONE /effective-config endpoint (removed duplicate)
+# ✅ Q3 - Using the hint structure
 @app.get("/effective-config")
-def effective_config(set: list[str] = Query(default=[])):
-    config = DEFAULTS.copy()
-
-    # YAML layer
-    if os.path.exists("config.development.yaml"):
-        with open("config.development.yaml") as f:
-            config.update(yaml.safe_load(f))
-
-    # .env layer
-    if "APP_LOG_LEVEL" in os.environ:
-        config["log_level"] = os.environ["APP_LOG_LEVEL"]
-
-    if "APP_API_KEY" in os.environ:
-        config["api_key"] = os.environ["APP_API_KEY"]
-
-    if "NUM_WORKERS" in os.environ:
-        config["workers"] = int(os.environ["NUM_WORKERS"])
-
-    # OS env layer
-    config["port"] = int(os.getenv("APP_PORT") or 8964)
-    config["workers"] = int(os.getenv("APP_WORKERS") or 10)
-
-    if os.getenv("APP_DEBUG"):
-        config["debug"] = coerce("debug", os.getenv("APP_DEBUG"))
-
-    if os.getenv("APP_LOG_LEVEL"):
-        config["log_level"] = os.getenv("APP_LOG_LEVEL")
-
-    if os.getenv("APP_API_KEY"):
-        config["api_key"] = os.getenv("APP_API_KEY")
-
-    # CLI overrides
-    for item in set:
-        if "=" in item:
-            k, v = item.split("=", 1)
-            config[k] = coerce(k, v)
-
-    # mask secret
-    config["api_key"] = "****"
-
-    return config
-
+async def get_config(request: Request):
+    cfg = {
+        "port": config.Q3_PORT,
+        "workers": config.Q3_WORKERS,
+        "debug": config.Q3_DEBUG,
+        "log_level": config.Q3_LOG_LEVEL,
+        "api_key": "****"
+    }
+    
+    # Process query parameters
+    for k, value in request.query_params.multi_items():
+        if k == "set":
+            key, val = value.split("=", 1)
+            if key in ["port", "workers"]:
+                cfg[key] = int(val)
+            elif key == "debug":
+                cfg[key] = str(val).lower() in ["true", "1", "yes", "on"]
+            else:
+                cfg[key] = val
+    
+    cfg["api_key"] = "****"
+    return cfg
 
 @app.get("/debug-env")
 def debug_env():
-    import os
     return {
-        "APP_PORT": os.getenv("APP_PORT"),
-        "APP_WORKERS": os.getenv("APP_WORKERS"),
-        "APP_API_KEY_SET": os.getenv("APP_API_KEY") is not None,
+        "APP_PORT": config.Q3_PORT,
+        "APP_WORKERS": config.Q3_WORKERS,
+        "APP_API_KEY_SET": config.Q3_API_KEY != "default-secret-000",
     }

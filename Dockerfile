@@ -1,10 +1,9 @@
-﻿FROM python:3.11-slim
-
+$docker = @"
+FROM python:3.11-slim
 WORKDIR /app
-
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-
 COPY . .
-
-CMD ["sh", "-c", "uvicorn api.index:app --host 0.0.0.0 --port $PORT"]
+CMD uvicorn api.index:app --host 0.0.0.0 --port `$PORT
+"@
+Set-Content -Path Dockerfile -Value $docker -Force

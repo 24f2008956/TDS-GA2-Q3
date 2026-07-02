@@ -1,4 +1,5 @@
-﻿import os
+$config = @"
+import os
 import yaml
 from dotenv import load_dotenv
 
@@ -25,3 +26,5 @@ Q3_WORKERS = int(os.getenv("APP_WORKERS", Q3_WORKERS))
 Q3_DEBUG = str(os.getenv("APP_DEBUG", Q3_DEBUG)).lower() in ["true", "1", "yes", "on"]
 Q3_LOG_LEVEL = os.getenv("APP_LOG_LEVEL", Q3_LOG_LEVEL)
 Q3_API_KEY = os.getenv("APP_API_KEY", Q3_API_KEY)
+"@
+Set-Content -Path config.py -Value $config -Force

@@ -1,6 +1,5 @@
 fastapi
 uvicorn
-pydantic
-pyjwt
+pyyaml
 python-dotenv
-pyyaml# Force cache clear 07/02/2026 20:28:08
+PyJWT

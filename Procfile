@@ -1,1 +1,1 @@
-web: uvicorn api.index:app --host 0.0.0.0 --port $PORT
+Set-Content -Path Procfile -Value "web: uvicorn api.index:app --host 0.0.0.0 --port `$PORT"

@@ -87,7 +87,8 @@ async def get_config(request: Request):
         "workers": config.Q3_WORKERS,
         "debug": config.Q3_DEBUG,
         "log_level": config.Q3_LOG_LEVEL,
-        "api_key": "****"
+        "api_key": "****",
+        "deployment_test": "CORS_FIX_V2"  # ← ADD THIS LINE
     }
     
     # Process query parameters

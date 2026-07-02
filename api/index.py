@@ -1,20 +1,9 @@
-from fastapi import FastAPI, Query
-from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
-import yaml
+from fastapi import Request
 import os
+import yaml
+from dotenv import load_dotenv
 
 load_dotenv()
-
-app = FastAPI()
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 DEFAULTS = {
     "port": 8000,
@@ -24,38 +13,37 @@ DEFAULTS = {
     "api_key": "default-secret-000",
 }
 
-
 def coerce(key, value):
     if key in ["port", "workers"]:
         return int(value)
-
     if key == "debug":
         return str(value).lower() in ["true", "1", "yes", "on"]
-
     return value
 
 
 @app.get("/effective-config")
-def effective_config(set: list[str] = Query(default=[])):
-    config = DEFAULTS.copy()
+async def get_config(request: Request):
 
-    # 1. YAML (highest after defaults)
+    # 1. defaults
+    cfg = DEFAULTS.copy()
+
+    # 2. YAML
     if os.path.exists("config.development.yaml"):
         with open("config.development.yaml") as f:
-            yaml_config = yaml.safe_load(f) or {}
-            config.update(yaml_config)
+            y = yaml.safe_load(f) or {}
+            cfg.update(y)
 
-    # 2. .env layer
+    # 3. .env
     if os.getenv("NUM_WORKERS"):
-        config["workers"] = int(os.getenv("NUM_WORKERS"))
+        cfg["workers"] = int(os.getenv("NUM_WORKERS"))
 
     if os.getenv("APP_LOG_LEVEL"):
-        config["log_level"] = os.getenv("APP_LOG_LEVEL")
+        cfg["log_level"] = os.getenv("APP_LOG_LEVEL")
 
     if os.getenv("APP_API_KEY"):
-        config["api_key"] = os.getenv("APP_API_KEY")
+        cfg["api_key"] = os.getenv("APP_API_KEY")
 
-    # 3. OS env (APP_* prefix)
+    # 4. OS env
     mapping = {
         "APP_PORT": "port",
         "APP_WORKERS": "workers",
@@ -64,17 +52,17 @@ def effective_config(set: list[str] = Query(default=[])):
         "APP_API_KEY": "api_key",
     }
 
-    for env_key, cfg_key in mapping.items():
-        if os.getenv(env_key) is not None:
-            config[cfg_key] = coerce(cfg_key, os.getenv(env_key))
+    for k, v in mapping.items():
+        if os.getenv(k) is not None:
+            cfg[v] = coerce(v, os.getenv(k))
 
-    # 4. CLI overrides (highest precedence)
-    for item in set:
-        if "=" in item:
-            key, value = item.split("=", 1)
-            config[key] = coerce(key, value)
+    # 5. CLI overrides (?set=key=value)
+    for k, value in request.query_params.multi_items():
+        if k == "set":
+            key, val = value.split("=", 1)
+            cfg[key] = coerce(key, val)
 
     # mask secret
-    config["api_key"] = "****"
+    cfg["api_key"] = "****"
 
-    return config
+    return cfg

@@ -5,6 +5,10 @@ import uuid
 from pydantic import BaseModel
 import jwt
 import config
+from prometheus_client import Counter, generate_latest
+import time
+from collections import deque
+
 
 EMAIL = "24f2008956@ds.study.iitm.ac.in"
 
@@ -26,6 +30,64 @@ async def add_headers(request: Request, call_next):
     response.headers["X-Request-ID"] = str(uuid.uuid4())
     response.headers["X-Process-Time"] = f"{time.perf_counter() - start:.6f}"
     return response
+
+# --- Observability Setup ---
+START_TIME = time.time()
+REQUEST_COUNTER = Counter('http_requests_total', 'Total HTTP requests')
+LOG_BUFFER = deque(maxlen=1000)  # Keep last 1000 log entries
+
+@app.middleware("http")
+async def observability_middleware(request: Request, call_next):
+    # Increment counter for every request
+    REQUEST_COUNTER.inc()
+    
+    # Process request
+    start = time.perf_counter()
+    response = await call_next(request)
+    duration = time.perf_counter() - start
+    
+    # Log the request
+    log_entry = {
+        "level": "INFO",
+        "ts": time.time(),
+        "path": request.url.path,
+        "request_id": str(uuid.uuid4()),
+        "method": request.method,
+        "status_code": response.status_code,
+        "duration": duration
+    }
+    LOG_BUFFER.append(log_entry)
+    
+    return response
+
+@app.get("/work")
+def work(n: int = 1):
+    # Simulate work
+    time.sleep(0.001 * n)
+    return {
+        "email": "24f2008956@ds.study.iitm.ac.in",
+        "done": n
+    }
+
+@app.get("/metrics")
+def metrics():
+    from fastapi.responses import Response
+    return Response(content=generate_latest(), media_type="text/plain; version=0.0.4; charset=utf-8")
+
+@app.get("/healthz")
+def healthz():
+    uptime = time.time() - START_TIME
+    return {
+        "status": "ok",
+        "uptime_s": uptime
+    }
+
+@app.get("/logs/tail")
+def logs_tail(limit: int = 10):
+    # Return last N log entries
+    logs = list(LOG_BUFFER)[-limit:]
+    return logs
+
 
 @app.get("/")
 def root():
